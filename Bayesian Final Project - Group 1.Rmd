@@ -1,0 +1,688 @@
+---
+title: 'Final Project: MATH 401 Bayesian Analysis'
+author: 'By: Liam Kruesi, Michael Wise, Mason Nakamura, William Holt'
+date: "12 December 2022"
+output:
+  html_document:
+    df_print: paged
+---
+
+The goal of this project was to examine what mostly effects an individual's financial success in life. In recent times, some people have been undermining the importance of secondary education due to increasing costs - begging the question of it is even worth it to pursue a college degree. Using Bayesian statistics, we can look at some data that will give us more insight on the impact of education level with respect to income. Our specific data set was designed with taking features of individuals (previous test scores, parents' education, socioeconomic status,,individual education, etc.) and seeing what really impacts their income the most.
+
+---
+
+All of the following code is a compilation of all of our group's contributions, kindly put all together by Michael.
+
+# 1. Installation of packages / Loading of data
+
+```{r message=FALSE}
+#install.packages("dplyr")
+#install.packages("tidyverse")
+#install.packages("ggplot2")
+#install.packages("VennDiagram")
+#install.packages("corrplot")
+#install.packages("leaps")
+#install.packages("car")
+#install.packages("scales")
+#install.packages("plotly")
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+require(ggplot2)
+require(gridExtra)
+require(ProbBayes)
+require(tidyverse)
+require(runjags)
+require(coda)
+crcblue <- "#2905a1"
+knitr::opts_chunk$set(echo = TRUE)
+def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- def.chunk.hook(x, options)
+  ifelse(options$size != "normalsize", paste0("\\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+})
+```
+
+While this data can be found in the `Sleuth3` Python package, we have a slightly modified version that eliminates some unimportant columns as a `.csv`.
+
+```{r}
+income <- read.csv(url('https://raw.githubusercontent.com/michaelwise12/hbc-wise/main/BellCurve.csv'))
+```
+
+---
+
+# 2. Exploratory Data Analysis
+
+*Contributor(s): Liam K.*
+
+The data we chose is originally extracted from a 1979 National Longitudinal Study of Youth (NLSY79). The data we are looking at is a subset of 2,584 of the individuals in the original study in 1979 and reinterviewed in 2006.
+
+The stated goal of the study was to use the scores of the individuals on certain intelligence tests taken during the individual's youth (the exact tests and there parameters will be expanded upon soon) to predict their 2005 income as opposed to education or socioeconomic status variables (of which again, are to be expanded upon soon).
+
+Every participant was employed in 2005 and provided the appropriate figures for all variables. To start off, let's just see what our data looks like.
+
+```{r}
+head(income)
+```
+Our data consists of 20 variables. 8 of which are socioecnomic variables and 11 of which are test score variables meant to measure intelligence.
+
+The socioecnomic variables listed above are as follows:
+
+1. **Imagezine** a variable extracted from the original survey in 1979, take on a value of 1 if a household regularly reads magezines and 0 if the household does not regularly read magezines.
+2.   **Inewspaper** a variable extracted from the original survey in 1979, take on a value of 1 if a household regularly reads newspapers and 0 if the household does not regularly read the newspaper.
+3. **Ilibaray** a variable extracted from the original survey in 1979, take on a value of 1 if the individual has a library card and 0 if the individual does not have a library card.
+4. **MotherEd** a variable of the count of years of organized education the individuals mother has recieved.
+5. **FatherEd** a variable of the count of years of organized education the individuals father has recieved.
+6. **FamilyIncome78** the approximate individual's family income in 1978.
+7. **Gender** a variable spitting the idividuals by both males and females.
+8. **Educ** the years of organized education completed by the individual by 2006.
+
+The variables which seek to quantify intelligence are as follows:
+
+1. **Science** individual's score on the General Science test in 1981.
+2. **Arith** individual's score on the Arithmetic Reasoning test in 1981.
+3. **Word** individual's score on the Word Knowledge Test in 1981.
+4. **Parag** individual's score on the Paragraph Comprehension test in 1981.
+5. **Numer** individual's score on the Numerical Operations test in 1981.
+6. **Coding** individual's score on the Coding Speed test in 1981.
+7. **Auto** individual's score on the Automotive and Shop test in 1981.
+8. **Math** individual's score on the Mathematics Knowledge test in 1981.
+9. **Mechanic** individual's score on the Electronics Information test in 1981.
+10. **Elec** individual's score on the Paragraph Comprehension test in 1981.
+11. **AFQT** individual's percentile score on the AFQT intelligence test in 1981.
+
+The above variable of course then work to predict **Income2005**, the variable which measures the individual's total annual income in 2005.
+
+Now we have some more knowledge of our data set. We can begin by doing some of our own data manipulation. Primarily, we change the education level variables (years) into 5 categorical classes. This way, we create a better cutoff of each major step in education level to get a sense of any potential difference in Income.
+
+```{r}
+for(i in 1:length(income[,1])){
+  if (income$MotherEd[i] < 12){income$MotherEdCat[i] = "Less than High School"}
+
+  else if (income$MotherEd[i] == 12){income$MotherEdCat[i] = "High School"}
+
+  else if (income$MotherEd[i] < 16){income$MotherEdCat[i] = "Some College"}
+
+  else if (income$MotherEd[i] == 16){income$MotherEdCat[i] = "College"}
+
+  else if (income$MotherEd[i] > 16){income$MotherEdCat[i] = "Graduate College"}
+}
+```
+
+```{r}
+for(i in 1:length(income[,1])){
+  if (income$FatherEd[i] < 12){income$FatherEdCat[i] = "Less than High School"}
+
+  else if (income$FatherEd[i] == 12){income$FatherEdCat[i] = "High School"}
+
+  else if (income$FatherEd[i] < 16){income$FatherEdCat[i] = "Some College"}
+
+  else if (income$FatherEd[i] == 16){income$FatherEdCat[i] = "College"}
+
+  else if (income$FatherEd[i] > 16){income$FatherEdCat[i] = "Graduate College"}
+}
+```
+
+```{r}
+for(i in 1:length(income[,1])){
+  if (income$Educ[i] < 12){income$EducCat[i] = "Less than High School"}
+
+  else if (income$Educ[i] == 12){income$EducCat[i] = "High School"}
+
+  else if (income$Educ[i] < 16){income$EducCat[i] = "Some College"}
+
+  else if (income$Educ[i] == 16){income$EducCat[i] = "College"}
+
+  else if (income$Educ[i] > 16){income$EducCat[i] = "Graduate College"}
+}
+```
+
+
+```{r}
+income$MotherEdCat <- factor(income$MotherEdCat, 
+  levels = c("Less than High School", "High School", "Some College", "College", "Graduate College"))
+
+income$FatherEdCat <- factor(income$FatherEdCat, 
+  levels = c("Less than High School", "High School", "Some College", "College", "Graduate College"))
+
+income$EducCat <- factor(income$EducCat, 
+  levels = c("Less than High School", "High School", "Some College", "College", "Graduate College"))
+```
+
+```{r}
+head(income)
+```
+
+Before we continue with the immediate individual, let's take a look at some of the socioecnomic variables in this data set. The study takes into account whether or not the individual's household consumed newspapers and magazines. It also recorded whether or not these households had library cards in their youth.
+
+Although, these variables may not be the best for predicting the future successive of these individuals because these variables seem heavily correlated. This causes a bit of collinearity. Let's take a closer look into these variables to see whether they may be of any use to us in approximating/predicting income.
+
+```{r, echo=FALSE,results='hide',fig.keep='all'}
+library("VennDiagram")
+
+grid.newpage()                                        
+draw.triple.venn(area1 = 2226,                        
+                 area2 = 1994,
+                 area3 = 1843,
+                 n12 = 1804,
+                 n23 = 1511,
+                 n13 = 1692,
+                 n123 = 1477,
+                 col = "black",
+                 fill = c("lightpink", "lightgreen", "lightblue"),
+                 alpha = 1)
+```
+From our venn diagram we can see our suspicion was correct. If a family had a library card, then they likely consumed both daily newspapers and magazines. This suggests multicollinearity. So, let's continue only considering the most common variable, **Inewspaper**.
+
+Let's remember, this variable is from American households in 1978. Hence we can assume that almost all of these houses consume a daily newspaper. In fact, an [article by statistica.com](https://www.statista.com/topics/994/newspapers/) estimates paid circulations in 1978 were close to 400,000 more than we have in 2022.
+
+However, let's see if their is a correlation between **Inewspaper** and the academic success of the individual's success; measured by their achieved education level.
+
+```{r}
+Income <- income %>% 
+ mutate(Inewspaper = as.factor(Inewspaper)) %>%
+ mutate(Inewspaper = recode_factor(Inewspaper, '0' = 'No',
+ '1' = 'Yes'))
+ 
+Income%>%
+mutate(EducCat = fct_relevel(EducCat, 
+            "Less than High School", "High School", "Some College", 
+            "College", "Graduate College"))%>%
+ group_by(Inewspaper, EducCat) %>%
+ count() %>%
+ group_by(EducCat) %>%
+ mutate(percent = 100*n/sum(n)) %>%
+ ggplot(aes(EducCat, y = percent, fill = Inewspaper))+
+ geom_col() +
+ scale_fill_manual(values = c("lightgreen", "darkgreen"), name = "Newspaper Consuption") +
+ labs(x = "Education Level", y = "Percent")+
+  coord_flip()
+```
+
+While a correlation here seems apparent, the greater majority of every household in each education category consumed daily newspapers. This leads us to believe this variable would not make the best predictor (the class imbalance is just way too high). It is simply too common to be useful for an efficient model. 
+
+```{r}
+ggplot(income,
+       aes(x = FamilyIncome78/10000, 
+           y = log(Income2005/1000))) +
+  geom_point(color= "steelblue") +
+  geom_smooth(method = "lm")+
+  scale_y_continuous(label = scales::dollar) +
+  scale_x_continuous(label = scales::dollar) + 
+  labs(x = "Household Income in 1978",
+       y = "Income in 2005",
+       title = "Adult Income vs. Upbringing Income",
+       subtitle = "Income From 2005 Adjusted For Inflation") +
+  theme_minimal()
+```
+
+Despite a slight correlation between **FamilyIncome78** and **Income2005**, it is not nearly great enough to tell us a relationship exists here. We can see this visually in the above plot. Suggesting a person's socioeconomic upbringing and parent's success (in this study) does not have a profound effect on an individual's future.
+
+The intelligence variables are the individuals' test scores as youths. It should be faithful in demonstrating to us if "smarter" youths have a successful future. Which best determines future success? First we will look at the correlation in test scores in stem subjects, and then the test scores in language subjects.
+
+```{r}
+library(corrplot)
+
+corrplot(cor(Income[, c("Mechanic", "Science", "Arith", "Math", "Coding", "Auto", "AFQT", "Income2005")]),
+  method = "number",
+  type = "upper"
+)
+```
+
+```{r}
+corrplot(cor(Income[, c("Parag", "Word", "Numer", "Elec", "AFQT", "Income2005")]),
+  method = "number",
+  type = "upper"
+)
+```
+
+Predictably, we found that success on the stem subject tests as a youth anticipated better monatery future success than success on the language subjects. Not so intuitive is the very low correlation between the individual's 2005 income and **Coding**. Of course, coding was much less common in 1978 - so that explains the low correlation, because the test scores were fairly equally poor. The tests with the highest correlations to future success were the tests in arithmetic and general math.
+
+So let's see how these best predictor variables we've designated in a model. We use the Bayesian Information Criterion (BIC) to determine the best model. All subsets of the data will be searched and measured on a metric, in this case BIC, to find the best possible model.
+
+```{r}
+library(leaps)
+income.reg <- regsubsets(Income2005 ~ FamilyIncome78 + Educ + Arith + Math, income)
+bics = summary(income.reg)$bic
+bics
+```
+
+```{r}
+which.min(bics)
+summary(income.reg)$outmat
+```
+
+This best subset model reveals the individual's education level predicts future income better than anyother predictor variable; and any combination of these most correlated variables for that matter. Filling us in on the fact that the individual's education level alone serves best to predict their future income: beating their socioecnomic upbringing, intelligence as a youth, or their parents.
+
+```{r message=FALSE}
+library(scales)
+income%>%
+mutate(EducCat = fct_relevel(EducCat, 
+            "Less than High School", "High School", "Some College", 
+            "College", "Graduate College"))%>%
+  ggplot(aes(y = EducCat,
+           x = Income2005, 
+           color = EducCat)) +
+  geom_jitter(alpha = 0.7,
+              size = 0.5) + 
+  scale_x_continuous(label = dollar) +
+  labs(title = "Income by Education Level", 
+       subtitle = "2005 Income",
+       x = "",
+       y = "") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Perhaps this correlation indicates a difference in opportunity offered based on these degree. Or perhaps, further education properly trains people to the become successful people or successful people just find more success in further education. Let's prepare **Educ** for a hierarchical model.
+
+```{r message=FALSE}
+income%>%
+mutate(EducCat = fct_relevel(EducCat, 
+            "Less than High School", "High School", "Some College", 
+            "College", "Graduate College"))%>%
+ ggplot(aes(x = EducCat, fill=EducCat))+
+ geom_bar()+
+ theme_minimal()+
+  scale_fill_manual(values = c("darkred", "maroon", "purple", "violet", "lightpink"), name = "") +
+  theme(axis.line=element_blank(),
+      axis.text.x=element_blank(),
+      axis.text.y=element_blank(),
+      axis.ticks=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank(),
+      panel.background=element_blank(),
+      panel.border=element_blank(),
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      plot.background=element_blank())+
+ labs(x = "Education Levels", y = "Amount")
+```
+
+The prevalence of each **Educ** category seems rather normally distributed. Let's check how income is distributed to see what we can use as a prior distribution.
+
+---
+
+# 3. Finding a Prior Distribution
+
+*Contributor(s): Will H., Liam K.*
+```{r}
+ggplot(income, 
+       aes(x = Income2005, 
+           fill = EducCat)) +
+  geom_density(alpha = 0.4) +
+  xlim(0,300000)+
+  theme_classic()+
+  labs(title = "2005 Income by Education Level")
+```
+```{r}
+mean(income$Income2005)
+sd(income$Income2005)
+```
+
+The mean income for the data was \$49417 and the standard deviation of the income was \$46727.93. When initializing our hierarchical model, we can just opt to use this mean income for $\mu_0$.
+
+```{r}
+ggplot(income, aes(MotherEdCat)) + geom_bar()
+```
+
+```{r}
+ggplot(income, aes(FatherEdCat)) + geom_bar()
+```
+
+```{r}
+ggplot(income, aes(EducCat)) + geom_bar()
+```
+
+While there is class imbalance for education, this is exactly what we expect. We anticipate more people to have reached a high school education than those who have gone to college (simply because not everybody goes to college). Because of this, this is a good case to use Bayesian hierarchical modeling. Below, we can see that there graphically is some relationship between Education status and income - but this will require an actual Hierarchical model for predicting mean class income to tell us for certain.
+
+```{r}
+ggplot(income, aes(log(Income2005))) + geom_density() + facet_wrap(~EducCat, ncol=1) 
+```
+
+```{r}
+ggplot(income, aes(log(Income2005))) + geom_histogram()
+```
+
+```{r}
+table(income$EducCat)
+tapply(income$Income2005, income$EducCat, summary)
+```
+
+As we can see, we are pretty confident that income follows a log-normal distribution. Luckily, because we are using the Bayesian approach, using a standard normal prior distribution will suffice (a log-normal prior would be too hard to derive a posterior for unless we did an approximation).
+
+---
+
+# 4. Model Derivation
+
+*Contributor(s): Mason N.*
+
+We derive our hierarchical model for the mean income as the following:
+
+Data model:
+\[
+    Y_{i,j} \mid \mu_j, \sigma \stackrel{iid}{\sim} Normal(\mu_j, \sigma)
+\]
+such that $i = 1, \ldots, n_j$ and $j = 1, \ldots, J$. In this case we have $J=5$ education classes.
+
+**Prior distributions:**
+
+Let $\mu$ represent the mean income of the population while each $\mu_j$ is the mean income for each specific education level.
+
+\begin{align*}
+    \mu_j \mid \mu, \tau &\stackrel{iid}{\sim} Normal(\mu, \tau)\\
+    \mu \mid \mu_0, \gamma_0 &\stackrel{iid}{\sim} Normal(\mu_0, \gamma_0)\\
+    \frac{1}{\tau^2} \mid \alpha_\tau, \beta_\tau &\stackrel{iid}{\sim} Gamma(\alpha_\tau, \beta_\tau)\\
+    \frac{1}{\sigma^2} \mid \alpha_\sigma, \beta_\sigma &\stackrel{iid}{\sim} Gamma(\alpha_\sigma, \beta_\sigma)
+\end{align*}
+
+such that $\mu_0, \gamma_0, \alpha_\tau, \beta_\tau, \alpha_\sigma, \beta_\sigma$ are fixed hyperparameters while the $\mu_j$'s, $\sigma, \mu, $ and $\tau$ are unknown. As mentioned before, we can use $\mu_0 = 49417$ (the sample mean since it's normal). The rest of the fixed hyperparameters are up to our choice.
+
+**Likelihood:**
+
+\begin{align*}
+    L(\{\mu_j\}, \sigma, \mu, \tau) &= f(Y_{ij}, i = 1, \ldots, n_j, j = 1, \ldots, J \mid \{\mu_j\}, \sigma)\\
+    &= \prod_{j=1}^J\left(\prod_{i=1}^{n_j} f(Y_{ij} \mid \mu_j, \sigma)\right)\\
+    &= \prod_{j=1}^J\left(\prod_{i=1}^{n_j} \frac{1}{\sqrt{2\pi\sigma^2}}exp\left(-\frac{(y_{ij}-\mu_j)^2}{2\sigma^2}\right)\right)\\
+\end{align*}\\
+
+**Joint Prior Distribution:**
+
+\begin{align*}
+    p(\{\mu_j\}, \sigma, \mu, \tau \mid \mu_0, \gamma_0, \alpha_\tau, \beta_\tau, \alpha_\sigma, \beta_\sigma) &= \prod_{j=1}^J (p(\mu_j \mid \mu, \tau))p(\mu \mid \mu_0, \gamma_0)p(\tau\mid \alpha_\tau, \beta_\tau)p(\sigma\mid \alpha_\sigma, \beta_\sigma)\\
+    &= \prod_{j=1}^J\left(\frac{1}{\sqrt{2\pi\tau^2}}exp\left(-\frac{(\mu_j-\mu)^2}{2\tau^2}\right)\right)\cdot\\
+    & \left(\frac{1}{\sqrt{2\pi\gamma_0^2}}exp\left(-\frac{(\mu-\mu_0)^2}{2\gamma_0^2}\right)\right)\cdot\\
+    & \frac{\beta_\tau^{\alpha_\tau}}{\Gamma(\alpha_\tau)}\left(\frac{1}{\tau^2}\right)^{\alpha_\tau-1}exp\left(-\beta_\tau\left(\frac{1}{\tau^2}\right)\right)\cdot\\
+    & \frac{\beta_\sigma^{\alpha_\sigma}}{\Gamma(\alpha_\sigma)}\left(\frac{1}{\sigma^2}\right)^{\alpha_\sigma-1}exp\left(-\beta_\sigma\left(\frac{1}{\sigma^2}\right)\right)\\
+\end{align*}
+
+**Joint Posterior Distribution:**
+
+\begin{align*}
+    p(\{\mu_j\}, \sigma, \mu, \tau \mid \{y_{ij}\}, \mu_0, \gamma_0, \alpha_\tau, \beta_\tau, \alpha_\sigma, \beta_\sigma) &\propto p(\{\mu_j\}, \sigma, \mu, \tau \mid \mu_0, \gamma_0, \alpha_\tau, \beta_\tau, \alpha_\sigma, \beta_\sigma) \cdot L(\{\mu_j\}, \sigma, \mu, \tau)\\
+    &\propto \prod_{j=1}^J\left(\prod_{i=1}^{n_j} \frac{1}{\sqrt{2\pi\sigma^2}}exp\left(-\frac{(y_{ij}-\mu_j)^2}{2\sigma^2}\right)\right)\cdot\\
+    & \prod_{j=1}^J\left(\frac{1}{\sqrt{2\pi\tau^2}}exp\left(-\frac{(\mu_j-\mu)^2}{2\tau^2}\right)\right)\cdot\\
+    & \left(\frac{1}{\sqrt{2\pi\gamma_0^2}}exp\left(-\frac{(\mu-\mu_0)^2}{2\gamma_0^2}\right)\right)\cdot\\
+    & \frac{\beta_\tau^{\alpha_\tau}}{\Gamma(\alpha_\tau)}\left(\frac{1}{\tau^2}\right)^{\alpha_\tau-1}exp\left(-\beta_\tau\left(\frac{1}{\tau^2}\right)\right)\cdot\\
+    & \frac{\beta_\sigma^{\alpha_\sigma}}{\Gamma(\alpha_\sigma)}\left(\frac{1}{\sigma^2}\right)^{\alpha_\sigma-1}exp\left(-\beta_\sigma\left(\frac{1}{\sigma^2}\right)\right)\\
+\end{align*}
+
+**Full Conditional Posterior Distribution for $\mu$:**
+
+\begin{align*}
+    p(\mu \mid - ) &\propto exp\left(-\frac{\sum_{j=1}^J(\mu_j-\mu)^2}{2\tau^2}\right)exp\left(-\frac{(\mu-\mu_0)^2}{2\gamma_0^2}\right)\\
+    &\propto exp\left(-\frac{J\mu^2-2\mu\sum_{j=1}^J\mu_j}{2\tau^2}\right)exp\left(-\frac{\mu^2-2\mu\mu_0}{2\gamma_0^2}\right)\\
+    &= exp\left(-\frac{1}{2}\left(\left(\frac{J}{\tau^2} + \frac{1}{\gamma_0^2}\right)\mu^2 - \left(\frac{2\sum_{j=1}^J\mu_j}{\tau^2} + \frac{2\mu_0}{\gamma_0^2}\right)\mu\right)\right)
+\end{align*}
+\[
+    \implies \mu \mid - \sim Normal\left(\frac{\sum_{j=1}^J\mu_j/\tau^2 + \mu_0/\gamma_0^2}{J/\tau^2 + 1/\gamma_0^2}, (J/\tau^2 + 1/\gamma_0^2)^{-1/2}\right)
+\]
+
+**Full Conditional Posterior Distribution for $1/\tau^2$:**
+
+\begin{align*}
+    p(1/\tau^2 \mid - ) &\propto \prod_{j=1}^J(1/\tau^2)^{1/2}exp\left(-\frac{\sum_{j=1}^J(\mu_j-\mu)^2}{2\tau^2}\right)(1/\tau^2)^{\alpha_\tau-1}exp(-\beta_\tau(1/\tau^2))\\
+    &= (1/\tau^2)^{J/2}exp\left(-\frac{\sum_{j=1}^J(\mu_j-\mu)^2}{2}(1/\tau^2)\right)(1/\tau^2)^{\alpha_\tau-1}exp(-\beta_\tau(1/\tau^2))\\
+    &= (1/\tau^2)^{J/2 + \alpha_\tau-1}exp\left(-\left(\frac{\sum_{j=1}^J(\mu_j-\mu)^2}{2} + \beta_\tau\right)(1/\tau^2)\right)
+\end{align*}
+\[
+    \implies 1/\tau^2 \mid - \sim Gamma\left(\alpha_\tau + \frac{J}{2}, \beta_\tau + \frac{1}{2}\sum_{j=1}^J(\mu_j-\mu)^2\right)
+\]
+
+**Full Conditional Posterior Distribution for $\mu_j$:**
+
+\begin{align*}
+    p(\mu_j \mid - ) &\propto \prod_{i=1}^{n_j} exp\left(-\frac{(y_{ij}-\mu_j)^2}{2\sigma^2}\right)exp\left(\frac{(\mu_j-\mu)^2}{2\tau^2}\right)\\
+    &= exp\left(-\frac{\sum_{i=1}^{n_j}(y_{ij}-\mu_j)^2}{2\sigma^2}\right)exp\left(\frac{(\mu_j-\mu)^2}{2\tau^2}\right)\\
+    &\propto exp\left(-\frac{n_j\mu_j^2 - 2\mu_j\sum_{i=1}^{n_j}y_{ij}}{2\sigma^2}\right)exp\left(\frac{\mu_j^2 - 2\mu_j\mu}{2\tau^2}\right)\\
+    &= exp\left(-\frac{1}{2}\left(\left(\frac{n_j}{\sigma^2} + \frac{1}{\tau^2}\right)\mu_j^2 - \left(\frac{2\sum_{i=1}^{n_j}y_{ij}}{\sigma^2} + \frac{2\mu}{\tau^2}\right)\mu_j\right)\right)
+\end{align*}
+\[
+    \implies \mu_j \mid - \sim Normal\left(\frac{\sum_{i=1}^{n_j}y_{ij}/\sigma^2 + \mu/\tau^2}{{n_j}/\sigma^2 + 1/\tau^2}, (n_j/\sigma^2 + 1/\tau^2)^{-1/2}\right)
+\]
+
+**Full Conditional Posterior Distribution for $1/\sigma^2$:**
+
+\begin{align*}
+    p(1/\sigma^2 \mid - ) &\propto \left(\prod_{j=1}^J\prod_{i=1}^{n_j}(1/\sigma^2)^{1/2} \right) \left(\prod_{j=1}^J\prod_{i=1}^{n_j}exp\left(-\frac{(y_{ij}-\mu_j)^2}{2\sigma^2}\right)\right)(1/\sigma^2)^{\alpha_\sigma-1}exp(-\beta_\sigma(1/\sigma^2))\\
+    &= (1/\sigma^2)^{\frac{\sum_{j=1}^Jn_j}{2}}exp\left(-(1/\sigma^2)\frac{1}{2}\sum_{j=1}^J\sum_{i=1}^{n_j}(y_{ij}-\mu_j)^2\right)(1/\sigma^2)^{\alpha_\sigma-1}exp(-\beta_\sigma(1/\sigma^2))\\
+    &= (1/\sigma^2)^{\alpha_\sigma + \sum_{j=1}^J n_j/2 - 1}exp\left(-(1/\sigma^2)\left(\beta_\sigma + \frac{1}{2}\sum_{j=1}^J\sum_{i=1}^{n_j}(y_{ij}-\mu_j)^2\right)\right)
+\end{align*}
+\[
+    \implies 1/\sigma^2 \mid - \sim Gamma\left(\alpha_\sigma + \sum_{j=1}^J\frac{n_j}{2}, \beta_\sigma + \frac{1}{2}\sum_{j=1}^J\sum_{i=1}^{n_j}(y_{ij}-\mu_j)^2\right)
+\]
+
+Great! Now we know how to obtain the posteriors for our model. The next step is coding a Gibbs sampler for approximating the mean income.
+
+---
+
+# 5. Gibbs Sampler for the Hierarchical Model
+
+*Contributor(s): Michael W. \& Mason N.*
+
+```{r}
+sd(income$Income2005)
+```
+
+We now will create a Gibbs sampler for our model. Like mentioned before, we use the empirical (sample) mean for our $\mu_0$. Similarly, we use the sample deviation making $\gamma_0 = 46727$. Perhaps we take the square root of this instead. For the rest of our hyperparameters, we choose $\alpha_\tau = \beta_\tau = \alpha_\sigma = \beta_\sigma = 1$ for the time being. We will run it for $S = 5000$ iterations.
+
+```{r}
+data = income$Income2005
+educlevel = income$EducCat
+
+N = length(data)  
+J = length(unique(educlevel))
+```
+
+### Gibbs sampler:
+
+```{r}
+# Hyperpriors
+set.seed(401)
+mu_0 <- mean(data)
+g_0 <- sqrt(sd(data))
+a_tau <- 1
+b_tau <- 1
+a_sigma <- 1
+b_sigma <- 1
+
+S <- 5000
+
+# get the samples wrt schedule (y_ij)
+y_1 <- income[income$EducCat == 'Less than High School', 'Income2005']
+y_2 <- income[income$EducCat == 'High School', 'Income2005']
+y_3 <- income[income$EducCat == 'Some College', 'Income2005']
+y_4 <- income[income$EducCat == 'College', 'Income2005']
+y_5 <- income[income$EducCat == 'Graduate College', 'Income2005']
+
+# From https://www.statology.org/conditional-mean-in-r/
+# Get the sample means of rating with respect to their category
+sample_mean_1 <- mean(y_1)
+sample_mean_2 <- mean(y_2)
+sample_mean_3 <- mean(y_3)
+sample_mean_4 <- mean(y_4)
+sample_mean_5 <- mean(y_5)
+
+# Use the sample means as priors for the initial means for each group j in J
+sample_means <- c(sample_mean_1, sample_mean_2, sample_mean_3, sample_mean_4)
+mu_j <- sample_means
+
+y <- list()
+y[[1]] <- y_1
+y[[2]] <- y_2
+y[[3]] <- y_3
+y[[4]] <- y_4
+y[[5]] <- y_5
+
+# get the sample lengths
+# From https://statisticsglobe.com/count-occurrences-value-data-frame-r
+n_1 <- sum(income$EducCat == 'Less than High School')
+n_2 <- sum(income$EducCat == 'High School')
+n_3 <- sum(income$EducCat == 'Some College')
+n_4 <- sum(income$EducCat == 'College')
+n_5 <- sum(income$EducCat == 'Graduate College')
+
+n <- c(n_1, n_2, n_3, n_4, n_5)
+
+# Have some initial values
+invtau2 <- 1
+invsigma2 <- 1
+mu <- 1
+print(mu_j)
+MU_Js <- matrix(mu_j, nrow = 1, ncol = J)
+MUs <- c(mu)
+INVTAU2s <- c(invtau2)
+INVSIGMA2s <- c(invsigma2)
+for (i in 2:S) {
+  # print(MU_Js[i-1,])
+  mu <- rnorm(1, (sum(MU_Js[i-1,]*INVTAU2s[i-1]) + mu_0/(g_0^2))/(J*INVTAU2s[i-1] + 1/(g_0^2)), (J*INVTAU2s[i-1]         + 1/(g_0^2))^(-1/2))
+  invtau2 <- rgamma(1, a_tau + J/2, b_tau + (1/2)*sum((MU_Js[i-1,]-MUs[i-1])^2))
+  temp_sum <- 0
+  for (j in 1:J) {
+    for (k in 1:n[j]) {
+      temp_sum = temp_sum + (y[[j]][k] - MU_Js[i-1,j])^2
+    }
+  }
+  invsigma2 <- rgamma(1, a_sigma + sum(n)/2, b_sigma + 1/2*temp_sum)
+  
+  mu_js <- c()
+  for (j in 1:J) {
+    mu_j <- rnorm(1, (sum(y[[j]]*INVSIGMA2s[i-1]) + MUs[i-1]*INVTAU2s[i-1])/(n[j]*INVSIGMA2s[i-1] + INVTAU2s[i-1]), (n[j]*INVSIGMA2s[i-1] + INVTAU2s[i-1])^(-1/2))
+    mu_js <- c(mu_js, mu_j)
+  }
+  
+  # Save values
+  MU_Js <- rbind(MU_Js, mu_js)
+  MUs <- c(MUs, mu)
+  INVTAU2s <- c(INVTAU2s, invtau2)
+  INVSIGMA2s <- c(INVSIGMA2s, invsigma2)
+}
+```
+
+
+```{r}
+name <- c("MU", "TAU", "MU_J[1]","MU_J[2]", "MU_J[3]", "MU_J[4]", "MU_J[5]", "SIGMA")
+mean_j <- c(mean(MUs), mean(1/sqrt(INVTAU2s)), mean(MU_Js[,1]), mean(MU_Js[,2]), mean(MU_Js[,3]),mean(MU_Js[,4]), mean(MU_Js[,5]), mean(1/sqrt(INVSIGMA2s)))
+muj_df <- data.frame(name, mean_j)
+
+print(muj_df)
+```
+
+Here are the results from our Gibbs sampler. In order to verify if these estimates are correct, we will create the same model in JAGS.
+
+---
+
+# 6. JAGS Code for The Hierarchical Model
+
+*Contributor(s): Will H. \& Michael W.*
+
+Below, we define the `modelString` to be inputted into our JAGS model. The likelihood and prior distribution along with our chosen hyperparameters are identical to those we used when deriving the posterior by hand.
+
+```{r message = FALSE}
+modelString <-"
+model {
+## likelihood
+for (i in 1:N){
+y[i] ~ dnorm(mu_j[educ[i]], invsigma2)
+}
+
+## priors
+for (j in 1:J){
+mu_j[j] ~ dnorm(mu, invtau2)
+}
+invsigma2 ~ dgamma(a_g, b_g)
+sigma <- sqrt(pow(invsigma2, -1))
+
+## hyperpriors
+mu ~ dnorm(mu0, 1/g0^2)
+invtau2 ~ dgamma(a_t, b_t)
+tau <- sqrt(pow(invtau2, -1))
+}
+"
+```
+
+```{r message = FALSE}
+y = income$Income2005   
+educ = income$EducCat  
+N = length(y)  
+J = length(unique(educ)) 
+
+initsfunction <- function(chain){
+  .RNG.seed <- c(1,2)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+
+the_data <- list("y" = y, "educ" = educ, "N" = N, "J" = J, 
+                 "mu0" = mu_0, "g0" = g_0, 
+                 "a_t" = 1, "b_t" = 1,
+                 "a_g" = 1, "b_g" = 1)
+```
+
+
+By default, we run for 5000 iterations like our Gibbs sampler, and also set the thinning to 5, which helps our models converge.
+
+```{r message = FALSE, warning = FALSE}
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("mu", "tau", "mu_j", "sigma"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000,
+                      thin = 5, 
+                      inits = initsfunction)
+```
+
+
+```{r message = FALSE, warning = FALSE}
+summary(posterior) 
+```
+
+Looking at the quantiles, we can see that most of our $\mu_j$'s have barely any overlap in income, which is really good. The summary of the posterior shows clear differences between the education levels with post graduate holders making nearly 3 times as much as those who didnt graduate high school. The numbers between the JAGS posterior and the hard-coded posterior are very similar as well, so we know we didn't make any mistakes!
+
+```{r, fig.width = 8, fig.height= 4}
+plot(posterior, plot.type = c("trace", "ecdf", "histogram", "autocorr"), layout = c(2,4))
+```
+
+The posterior plots show that the JAGS sampler was a success. All of the variables converge properly and follow the expected distributions.
+
+---
+
+# 7. Model Comparison \& Evaluation
+
+*Contributor(s): Michael W.*
+
+```{r}
+posterior$summary$statistics
+```
+
+To summarize/compare the predicted mean values for all of our variables, we can make a table:
+
+| **Posterior Mean Income ($) of:** | **Our Model** | **JAGS Model** |
+|:----------------:|:---------------:|:----------------:|
+| $\mu$          | 49407         | 49418          |
+| $\tau$          | 17608         | 17612          |
+| $\mu_1$ (Less than High School)        | 29441         | 29450          |
+| $\mu_2$ (High School)        | 36966         | 36924          |
+| $\mu_3$ (Some College)        | 44924         | 44894          |
+| $\mu_4$ (Undergraduate College)        | 69583         | 69602          |
+| $\mu_5$ (Graduate College)        | 76249         | 76299          |
+| $\sigma$          | 43815         | 43812          |
+
+As we can see, we can definitely confirm the difference that education level makes on income in a similar fashion to the Gibbs sampler. There is a significant difference in mean income for each education level, confirming our initial hypothesis that education does indeed have a big impact on your income. None of this should be utterly surprising, but it is very insightful to see an actual breakdown of what kind of income you should expect depending on the amount of education you receive on average. By using the Bayesian hierarchical approach, we are able to use information across each group of observation to reduce noise and improve our estimates overall (especially in groups that have less class representation). In a case where we had even less data than the ~2000 rows we had, we can really see how Bayesian hierarchical modeling is able to compensate for the lack of data.
+
+Overall, our analysis suggests that a college degree still seems to significantly pays off for the majority of graduates. In future studies, it would be interesting to find data that breaks it down by job/industry, because who knows if this is the case for all jobs? How could we see the effect of education in different fields, i.e. computer science, finance, engineering, etc. This, among many other analyses, provides further evidence that higher education, in fact, is not becoming obsolete as some people say it is. Perhaps, if we looked at data from 2022, this could confirm or deny more of our suspicions, but generally speaking, we find that based off of our data, the value of higher education still remarkably outweighs the potential disadvantages.
+
+---
+
+# References
+
+[1] Bureau of Labor Statistics, U.S. Department of Labor. National Longitudinal Survey of Youth 1979 cohort, 1979-2016 (rounds 1-27). Produced and distributed by the Center for Human Resource Research (CHRR), The Ohio State University. Columbus, OH: 2019.
+
